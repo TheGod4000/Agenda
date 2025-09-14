@@ -1,0 +1,4 @@
+--patch-module
+com.agenda=_
+--add-reads
+com.agenda=ALL-UNNAMED
