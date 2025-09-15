@@ -1,86 +1,84 @@
-/*
- * Servicio para lógica de negocio de Direcciones
- */
+// DireccionService.java - Refactorizado para implementar IDireccionService
 package com.agenda;
 
-import javafx.collections.FXCollections;
 import javafx.collections.ObservableList;
 import java.util.List;
+import java.util.Map;
 
 /**
- * Servicio para manejar la lógica de negocio de direcciones
+ * Servicio para lógica de negocio de Direcciones que implementa IDireccionService
+ * Aplica los principios SRP (manejo de lógica de negocio de direcciones) y DIP (depende de abstracciones)
  */
-public class DireccionService {
-    private final DireccionDAO direccionDAO;
-    private final PersonaDireccionDAO personaDireccionDAO;
+public class DireccionService implements IDireccionService {
+    // Dependencia de abstracción, no de clase concreta (DIP)
+    private final IDireccionDAO direccionDAO;
+    private final ITransactionManager transactionManager;
 
+    // Constructor por defecto
     public DireccionService() {
         this.direccionDAO = new DireccionDAO();
-        this.personaDireccionDAO = new PersonaDireccionDAO();
+        this.transactionManager = new TransactionManager();
     }
 
-    public DireccionService(DireccionDAO direccionDAO, PersonaDireccionDAO personaDireccionDAO) {
+    // Constructor para inyección de dependencias
+    public DireccionService(IDireccionDAO direccionDAO, ITransactionManager transactionManager) {
         this.direccionDAO = direccionDAO;
-        this.personaDireccionDAO = personaDireccionDAO;
+        this.transactionManager = transactionManager;
     }
 
-    /**
-     * Crear una nueva dirección con validaciones
-     */
+    @Override
     public boolean crearDireccion(Direccion direccion) throws IllegalArgumentException {
         validarDireccion(direccion);
 
         // Verificar si ya existe una dirección similar
         List<Direccion> similares = direccionDAO.buscarSimilares(direccion);
-        for (Direccion similar : similares) {
-            if (similar.esSimilarA(direccion)) {
-                throw new IllegalArgumentException(
-                        "Ya existe una dirección similar: " + similar.getDireccionCompleta());
-            }
+        if (!similares.isEmpty()) {
+            System.out.println("Se encontraron direcciones similares. Considere usar una existente.");
+            // En una implementación real, podrías lanzar una excepción específica
+            // o devolver información sobre las direcciones similares
         }
 
+        // Guardar la dirección en BD
         return direccionDAO.crear(direccion);
     }
 
-    /**
-     * Obtener dirección por ID
-     */
+    @Override
     public Direccion obtenerDireccion(int id) {
         return direccionDAO.obtenerPorId(id);
     }
 
-    /**
-     * Obtener todas las direcciones
-     */
+    @Override
     public ObservableList<Direccion> obtenerTodasDirecciones() {
         return direccionDAO.obtenerTodas();
     }
 
-    /**
-     * Actualizar dirección con validaciones
-     */
+    @Override
     public boolean actualizarDireccion(Direccion direccion) throws IllegalArgumentException {
         validarDireccion(direccion);
+
+        if (direccion.getId() <= 0) {
+            throw new IllegalArgumentException("La dirección debe tener un ID válido para ser actualizada");
+        }
+
         return direccionDAO.actualizar(direccion);
     }
 
-    /**
-     * Eliminar dirección (solo si no está en uso)
-     */
-    public boolean eliminarDireccion(int id) throws IllegalArgumentException {
+    @Override
+    public boolean eliminarDireccion(int id) {
+        // Verificar si la dirección está en uso antes de eliminar
         if (direccionDAO.estaEnUso(id)) {
-            int cantidadPersonas = personaDireccionDAO.contarPersonasPorDireccion(id);
-            throw new IllegalArgumentException(
-                    "No se puede eliminar la dirección porque está siendo usada por " +
-                            cantidadPersonas + " persona(s)");
+            throw new IllegalArgumentException("No se puede eliminar la dirección porque está siendo usada por una o más personas");
         }
 
         return direccionDAO.eliminar(id);
     }
 
-    /**
-     * Buscar direcciones por texto
-     */
+    @Override
+    public List<Direccion> buscarDireccionesSimilares(Direccion direccion) {
+        return direccionDAO.buscarSimilares(direccion);
+    }
+
+    @Override
     public ObservableList<Direccion> buscarDirecciones(String texto) {
         if (texto == null || texto.trim().isEmpty()) {
             return obtenerTodasDirecciones();
@@ -89,223 +87,77 @@ public class DireccionService {
     }
 
     /**
-     * Asociar una dirección existente a una persona
+     * Obtener direcciones de una persona específica
      */
-    public boolean asociarDireccionAPersona(int personaId, int direccionId, String etiqueta, boolean esPrincipal)
-            throws IllegalArgumentException {
-
-        if (personaDireccionDAO.existeRelacion(personaId, direccionId)) {
-            throw new IllegalArgumentException("La persona ya tiene asociada esta dirección");
-        }
-
-        // Validar etiqueta
-        if (etiqueta == null || etiqueta.trim().isEmpty()) {
-            etiqueta = "Dirección";
-        }
-
-        if (etiqueta.length() > 50) {
-            throw new IllegalArgumentException("La etiqueta no puede exceder 50 caracteres");
-        }
-
-        PersonaDireccion relacion = new PersonaDireccion(personaId, direccionId, etiqueta, esPrincipal);
-        return personaDireccionDAO.crear(relacion);
+    public List<Direccion> obtenerDireccionesPorPersona(int personaId) {
+        return direccionDAO.obtenerPorPersonaId(personaId);
     }
 
     /**
-     * Crear una nueva dirección y asociarla a una persona
+     * Verificar si una dirección está en uso
      */
-    public boolean crearYAsociarDireccion(int personaId, Direccion direccion, String etiqueta, boolean esPrincipal)
-            throws IllegalArgumentException {
-
-        // Primero crear la dirección
-        if (crearDireccion(direccion)) {
-            // Luego asociarla a la persona
-            return asociarDireccionAPersona(personaId, direccion.getId(), etiqueta, esPrincipal);
-        }
-
-        return false;
+    public boolean direccionEstaEnUso(int direccionId) {
+        return direccionDAO.estaEnUso(direccionId);
     }
 
     /**
-     * Desasociar una dirección de una persona
+     * Crear una dirección con validación exhaustiva
      */
-    public boolean desasociarDireccionDePersona(int personaId, int direccionId) {
-        List<PersonaDireccion> relaciones = personaDireccionDAO.obtenerPorPersonaId(personaId);
+    public boolean crearDireccionConValidacionCompleta(Direccion direccion) throws IllegalArgumentException {
+        validarDireccionCompleta(direccion);
 
-        for (PersonaDireccion relacion : relaciones) {
-            if (relacion.getDireccionId() == direccionId) {
-                return personaDireccionDAO.eliminar(relacion.getId());
+        return transactionManager.executeInTransaction(conn -> {
+            try {
+                // Buscar direcciones muy similares (mismo código postal + calle similar)
+                List<Direccion> similares = buscarDireccionesSimilares(direccion);
+
+                for (Direccion similar : similares) {
+                    if (sonDireccionesMuyParecidas(direccion, similar)) {
+                        throw new RuntimeException("Ya existe una dirección muy similar: " + similar.getDireccionCompleta());
+                    }
+                }
+
+                DireccionDAO concreteDAO = (DireccionDAO) direccionDAO;
+                return concreteDAO.crearConConexion(direccion, conn);
+
+            } catch (Exception e) {
+                throw new RuntimeException("Error al crear dirección: " + e.getMessage(), e);
             }
-        }
-
-        return false;
+        });
     }
 
     /**
-     * Actualizar la relación entre persona y dirección
+     * Obtener estadísticas de direcciones
      */
-    public boolean actualizarRelacionPersonaDireccion(PersonaDireccion relacion)
-            throws IllegalArgumentException {
+    public String obtenerEstadisticasDirecciones() {
+        ObservableList<Direccion> todasDirecciones = obtenerTodasDirecciones();
 
-        if (relacion.getEtiqueta() == null || relacion.getEtiqueta().trim().isEmpty()) {
-            throw new IllegalArgumentException("La etiqueta no puede estar vacía");
-        }
+        // Contar por ciudad
+        Map<String, Long> porCiudad = todasDirecciones.stream()
+                .collect(java.util.stream.Collectors.groupingBy(
+                        d -> d.getCiudad() != null ? d.getCiudad() : "Sin ciudad",
+                        java.util.stream.Collectors.counting()
+                ));
 
-        if (relacion.getEtiqueta().length() > 50) {
-            throw new IllegalArgumentException("La etiqueta no puede exceder 50 caracteres");
-        }
-
-        return personaDireccionDAO.actualizar(relacion);
-    }
-
-    /**
-     * Establecer una dirección como principal para una persona
-     */
-    public boolean establecerDireccionPrincipal(int personaId, int direccionId) {
-        return personaDireccionDAO.establecerComoPrincipal(personaId, direccionId);
-    }
-
-    /**
-     * Obtener todas las personas que comparten una dirección
-     */
-    public List<PersonaDireccion> obtenerPersonasQueCompartenDireccion(int direccionId) {
-        return personaDireccionDAO.obtenerPorDireccionId(direccionId);
-    }
-
-    /**
-     * Obtener estadísticas de uso de direcciones
-     */
-    public String obtenerEstadisticasDireccion(int direccionId) {
-        int cantidadPersonas = personaDireccionDAO.contarPersonasPorDireccion(direccionId);
-        Direccion direccion = direccionDAO.obtenerPorId(direccionId);
-
-        if (direccion == null) {
-            return "Dirección no encontrada";
-        }
+        // Contar por estado
+        Map<String, Long> porEstado = todasDirecciones.stream()
+                .collect(java.util.stream.Collectors.groupingBy(
+                        d -> d.getEstado() != null ? d.getEstado() : "Sin estado",
+                        java.util.stream.Collectors.counting()
+                ));
 
         StringBuilder stats = new StringBuilder();
-        stats.append("Dirección: ").append(direccion.getDireccionCompleta()).append("\n");
-        stats.append("Personas que la usan: ").append(cantidadPersonas).append("\n");
+        stats.append("Estadísticas de Direcciones:\n");
+        stats.append("Total de direcciones: ").append(todasDirecciones.size()).append("\n\n");
 
-        if (cantidadPersonas > 0) {
-            List<PersonaDireccion> relaciones = personaDireccionDAO.obtenerPorDireccionId(direccionId);
-            stats.append("Detalles:\n");
-            for (PersonaDireccion relacion : relaciones) {
-                stats.append("  - Persona ID ").append(relacion.getPersonaId())
-                        .append(" (").append(relacion.getEtiqueta()).append(")")
-                        .append(relacion.isEsPrincipal() ? " - Principal" : "")
-                        .append("\n");
-            }
-        }
+        stats.append("Por Ciudad:\n");
+        porCiudad.forEach((ciudad, count) ->
+                stats.append("  - ").append(ciudad).append(": ").append(count).append("\n"));
+
+        stats.append("\nPor Estado:\n");
+        porEstado.forEach((estado, count) ->
+                stats.append("  - ").append(estado).append(": ").append(count).append("\n"));
 
         return stats.toString();
-    }
-
-    /**
-     * Buscar direcciones similares para evitar duplicados
-     */
-    public List<Direccion> buscarDireccionesSimilares(Direccion direccion) {
-        return direccionDAO.buscarSimilares(direccion);
-    }
-
-    /**
-     * Sugerir dirección existente basada en texto parcial
-     */
-    public ObservableList<Direccion> sugerirDirecciones(String textoParcial) {
-        if (textoParcial == null || textoParcial.trim().length() < 3) {
-            return FXCollections.observableArrayList();
-        }
-
-        return direccionDAO.buscarPorTexto(textoParcial.trim());
-    }
-
-    /**
-     * Validar los datos de una dirección
-     */
-    private void validarDireccion(Direccion direccion) throws IllegalArgumentException {
-        if (direccion == null) {
-            throw new IllegalArgumentException("La dirección no puede ser null");
-        }
-
-        // Al menos uno de los campos principales debe tener contenido
-        boolean tieneContenido = false;
-
-        if (direccion.getCalle() != null && !direccion.getCalle().trim().isEmpty()) {
-            tieneContenido = true;
-            if (direccion.getCalle().trim().length() > 200) {
-                throw new IllegalArgumentException("La calle no puede exceder 200 caracteres");
-            }
-        }
-
-        if (direccion.getCiudad() != null && !direccion.getCiudad().trim().isEmpty()) {
-            tieneContenido = true;
-            if (direccion.getCiudad().trim().length() > 100) {
-                throw new IllegalArgumentException("La ciudad no puede exceder 100 caracteres");
-            }
-        }
-
-        if (!tieneContenido) {
-            throw new IllegalArgumentException("La dirección debe tener al menos calle o ciudad");
-        }
-
-        // Validar longitudes opcionales
-        if (direccion.getEstado() != null && direccion.getEstado().length() > 100) {
-            throw new IllegalArgumentException("El estado no puede exceder 100 caracteres");
-        }
-
-        if (direccion.getCodigoPostal() != null && direccion.getCodigoPostal().length() > 20) {
-            throw new IllegalArgumentException("El código postal no puede exceder 20 caracteres");
-        }
-
-        if (direccion.getPais() != null && direccion.getPais().length() > 100) {
-            throw new IllegalArgumentException("El país no puede exceder 100 caracteres");
-        }
-    }
-
-    /**
-     * Obtener direcciones más utilizadas
-     */
-    public List<Direccion> obtenerDireccionesMasUtilizadas(int limite) {
-        // Esta implementación requeriría una consulta más compleja
-        // Por ahora, devolvemos todas las direcciones ordenadas por uso
-        ObservableList<Direccion> todasDirecciones = direccionDAO.obtenerTodas();
-
-        // Ordenar por número de usuarios (esto se podría optimizar con una consulta SQL)
-        todasDirecciones.sort((d1, d2) -> {
-            int uso1 = personaDireccionDAO.contarPersonasPorDireccion(d1.getId());
-            int uso2 = personaDireccionDAO.contarPersonasPorDireccion(d2.getId());
-            return Integer.compare(uso2, uso1); // Orden descendente
-        });
-
-        return todasDirecciones.subList(0, Math.min(limite, todasDirecciones.size()));
-    }
-
-    /**
-     * Verificar integridad de datos de direcciones
-     */
-    public void verificarIntegridad() {
-        System.out.println("Verificando integridad de direcciones...");
-
-        ObservableList<Direccion> direcciones = direccionDAO.obtenerTodas();
-        int direccionesSinUso = 0;
-        int direccionesCompartidas = 0;
-
-        for (Direccion direccion : direcciones) {
-            int cantidadPersonas = personaDireccionDAO.contarPersonasPorDireccion(direccion.getId());
-
-            if (cantidadPersonas == 0) {
-                direccionesSinUso++;
-                System.out.println("⚠ Dirección sin uso: " + direccion.getDireccionCompleta());
-            } else if (cantidadPersonas > 1) {
-                direccionesCompartidas++;
-                System.out.println("✓ Dirección compartida por " + cantidadPersonas + " personas: " +
-                        direccion.getDireccionResumida());
-            }
-        }
-
-        System.out.println("Resumen de integridad:");
-        System.out.println("- Total direcciones: " + direcciones.size());
-        System.out.println("- Direcciones sin uso: " + direccionesSinUso);
-        System.out.println("- Direcciones compartidas: " + direccionesCompartidas);
     }
 }

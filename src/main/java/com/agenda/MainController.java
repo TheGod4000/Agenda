@@ -1,3 +1,4 @@
+// MainController.java - Refactorizado para depender de interfaces
 package com.agenda;
 
 import javafx.collections.ObservableList;
@@ -16,7 +17,8 @@ import java.util.Optional;
 import java.util.ResourceBundle;
 
 /**
- * Controlador principal de la aplicación - Actualizado para direcciones múltiples
+ * Controlador principal refactorizado que depende de interfaces (DIP)
+ * y tiene responsabilidades más claras (SRP)
  */
 public class MainController implements Initializable {
 
@@ -41,68 +43,60 @@ public class MainController implements Initializable {
     @FXML private Button btnBuscar;
     @FXML private Button btnMostrarTodos;
 
-    private PersonaService personaService;
-    private DireccionService direccionService;
+    // Dependencias de interfaces, no de clases concretas (DIP)
+    private final IPersonaService personaService;
+    private final IDireccionService direccionService;
+
     private Persona personaSeleccionada;
+
+    // Constructor por defecto - inicializa con implementaciones concretas
+    public MainController() {
+        this.personaService = new PersonaService();
+        this.direccionService = new DireccionService();
+    }
+
+    // Constructor para inyección de dependencias (ideal para testing)
+    public MainController(IPersonaService personaService, IDireccionService direccionService) {
+        this.personaService = personaService;
+        this.direccionService = direccionService;
+    }
 
     @Override
     public void initialize(URL location, ResourceBundle resources) {
-        System.out.println("Inicializando MainController con soporte para direcciones múltiples...");
+        System.out.println("Inicializando MainController con principios SOLID aplicados...");
 
-        personaService = new PersonaService();
-        direccionService = new DireccionService();
+        configurarTabla();
+        configurarEventos();
+        cargarPersonas();
+        establecerEstadoInicial();
 
-        // Configurar columnas de la tabla usando Properties
+        System.out.println("MainController inicializado correctamente");
+    }
+
+    /**
+     * Configurar las columnas de la tabla (SRP - método específico para configuración de tabla)
+     */
+    private void configurarTabla() {
         columnaNombre.setCellValueFactory(cellData -> cellData.getValue().nombreProperty());
 
-        // Columna personalizada para mostrar descripción de direcciones
         columnaDireccion.setCellValueFactory(cellData -> {
             Persona persona = cellData.getValue();
             return new javafx.beans.property.SimpleStringProperty(persona.getDescripcionDirecciones());
         });
 
-        // Columna personalizada para mostrar teléfonos
         columnaTelefonos.setCellValueFactory(cellData -> {
             Persona persona = cellData.getValue();
             return new javafx.beans.property.SimpleStringProperty(persona.getTelefonosAsString());
         });
-
-        // Configurar eventos
-        configurarEventos();
-
-        // Cargar datos iniciales
-        System.out.println("Cargando personas...");
-        cargarPersonas();
-
-        // Estado inicial
-        limpiarFormulario();
-        habilitarBotones(false, false, false);
-
-        System.out.println("MainController inicializado correctamente");
     }
 
+    /**
+     * Configurar todos los eventos de la interfaz (SRP - método específico para eventos)
+     */
     private void configurarEventos() {
-        // Selección en tabla
+        // Eventos de selección
         tablaPersonas.getSelectionModel().selectedItemProperty().addListener(
-                (observable, oldValue, newValue) -> {
-                    personaSeleccionada = newValue;
-                    if (newValue != null) {
-                        System.out.println("Persona seleccionada: " + newValue.getNombre());
-                        cargarPersonaEnFormulario(newValue);
-                        habilitarBotones(false, true, true);
-                    } else {
-                        limpiarFormulario();
-                        habilitarBotones(false, false, false);
-                    }
-                }
-        );
-
-        // Doble clic en teléfono para editar
-        listaTelefonos.setOnMouseClicked(event -> {
-            if (event.getClickCount() == 2) {
-                editarTelefonoSeleccionado();
-            }
-        });
+                (observable, oldValue, newValue) -> manejarSeleccionPersona(newValue));
 
         // Eventos de botones
         btnNuevo.setOnAction(e -> nuevoRegistro());
@@ -114,16 +108,21 @@ public class MainController implements Initializable {
         btnBuscar.setOnAction(e -> buscarPersonas());
         btnMostrarTodos.setOnAction(e -> cargarPersonas());
 
-        // Búsqueda en tiempo real
+        // Eventos especiales
+        listaTelefonos.setOnMouseClicked(event -> {
+            if (event.getClickCount() == 2) {
+                editarTelefonoSeleccionado();
+            }
+        });
+
         txtBuscar.textProperty().addListener((observable, oldValue, newValue) -> {
             if (newValue != null && !newValue.trim().isEmpty()) {
                 buscarPersonas();
             } else {
-                cargarPersonas(); // Mostrar todos si el campo está vacío
+                cargarPersonas();
             }
         });
 
-        // Doble clic en la dirección para abrir gestión de direcciones
         txtDireccion.setOnMouseClicked(event -> {
             if (event.getClickCount() == 2 && personaSeleccionada != null) {
                 abrirGestionDirecciones();
@@ -131,37 +130,37 @@ public class MainController implements Initializable {
         });
     }
 
-    private void cargarPersonas() {
-        try {
-            System.out.println("Obteniendo personas de la base de datos...");
-            ObservableList<Persona> personas = personaService.obtenerTodasPersonas();
-            System.out.println("Personas obtenidas: " + personas.size());
+    /**
+     * Establecer el estado inicial de la interfaz
+     */
+    private void establecerEstadoInicial() {
+        limpiarFormulario();
+        habilitarBotones(false, false, false);
+    }
 
-            // Debug: mostrar información de cada persona
-            for (int i = 0; i < Math.min(5, personas.size()); i++) {
-                Persona p = personas.get(i);
-                System.out.println("Persona " + (i+1) + ": " + p.getNombre() +
-                        " - Direcciones: " + p.getTotalDirecciones() +
-                        " - Teléfonos: " + p.getTelefonos().size());
-            }
+    /**
+     * Manejar la selección de una persona en la tabla
+     */
+    private void manejarSeleccionPersona(Persona nuevaSeleccion) {
+        personaSeleccionada = nuevaSeleccion;
 
-            tablaPersonas.setItems(personas);
-            tablaPersonas.refresh(); // Forzar actualización de la tabla
-
-            System.out.println("Tabla actualizada con " + personas.size() + " personas");
-
-        } catch (Exception e) {
-            System.err.println("Error al cargar personas: " + e.getMessage());
-            e.printStackTrace();
-            mostrarMensaje("Error", "Error al cargar personas: " + e.getMessage(), Alert.AlertType.ERROR);
+        if (nuevaSeleccion != null) {
+            System.out.println("Persona seleccionada: " + nuevaSeleccion.getNombre());
+            cargarPersonaEnFormulario(nuevaSeleccion);
+            habilitarBotones(false, true, true);
+        } else {
+            limpiarFormulario();
+            habilitarBotones(false, false, false);
         }
     }
 
+    /**
+     * Cargar datos de persona en el formulario
+     */
     private void cargarPersonaEnFormulario(Persona persona) {
         if (persona != null) {
             txtNombre.setText(persona.getNombre());
 
-            // Mostrar información resumida de direcciones
             if (persona.tieneDirecciones()) {
                 txtDireccion.setText(persona.getDescripcionDirecciones() + " (Doble clic para gestionar)");
                 txtDireccion.setStyle("-fx-text-fill: blue; -fx-font-style: italic;");
@@ -176,6 +175,29 @@ public class MainController implements Initializable {
         }
     }
 
+    /**
+     * Cargar todas las personas desde el servicio
+     */
+    private void cargarPersonas() {
+        try {
+            System.out.println("Cargando personas usando servicio...");
+            ObservableList<Persona> personas = personaService.obtenerTodasPersonas();
+
+            tablaPersonas.setItems(personas);
+            tablaPersonas.refresh();
+
+            System.out.println("Tabla actualizada con " + personas.size() + " personas");
+
+        } catch (Exception e) {
+            System.err.println("Error al cargar personas: " + e.getMessage());
+            e.printStackTrace();
+            mostrarError("Error al cargar personas", e.getMessage());
+        }
+    }
+
+    /**
+     * Limpiar el formulario
+     */
     private void limpiarFormulario() {
         txtNombre.clear();
         txtDireccion.clear();
@@ -186,6 +208,9 @@ public class MainController implements Initializable {
         tablaPersonas.getSelectionModel().clearSelection();
     }
 
+    /**
+     * Controlar el estado de los botones
+     */
     private void habilitarBotones(boolean guardar, boolean actualizar, boolean eliminar) {
         btnGuardar.setDisable(!guardar);
         btnActualizar.setDisable(!actualizar);
@@ -204,101 +229,76 @@ public class MainController implements Initializable {
     @FXML
     private void guardarRegistro() {
         try {
-            if (validarCampos()) {
-                // Crear solo con nombre (las direcciones se gestionan por separado)
-                Persona nuevaPersona = new Persona(txtNombre.getText().trim());
+            if (!validarFormulario()) return;
 
-                // Agregar teléfonos
-                for (Telefono tel : listaTelefonos.getItems()) {
-                    nuevaPersona.addTelefono(new Telefono(0, tel.getTelefono()));
-                }
+            Persona nuevaPersona = crearPersonaDesdeFormulario();
 
-                if (personaService.crearPersona(nuevaPersona)) {
-                    mostrarMensaje("Éxito",
-                            "Persona guardada correctamente.\n" +
-                                    "Para agregar direcciones, seleccione la persona y haga doble clic en el campo de dirección.",
-                            Alert.AlertType.INFORMATION);
-                    cargarPersonas();
-                    limpiarFormulario();
-                    habilitarBotones(false, false, false);
-                } else {
-                    mostrarMensaje("Error", "No se pudo guardar la persona", Alert.AlertType.ERROR);
-                }
+            if (personaService.crearPersona(nuevaPersona)) {
+                mostrarExito("Persona guardada correctamente",
+                        "Para agregar direcciones, seleccione la persona y haga doble clic en el campo de dirección.");
+
+                cargarPersonas();
+                limpiarFormulario();
+                habilitarBotones(false, false, false);
+            } else {
+                mostrarError("Error", "No se pudo guardar la persona");
             }
+
         } catch (IllegalArgumentException e) {
-            mostrarMensaje("Error de validación", e.getMessage(), Alert.AlertType.WARNING);
+            mostrarAdvertencia("Error de validación", e.getMessage());
         } catch (Exception e) {
             System.err.println("Error al guardar: " + e.getMessage());
             e.printStackTrace();
-            mostrarMensaje("Error", "Error inesperado: " + e.getMessage(), Alert.AlertType.ERROR);
+            mostrarError("Error inesperado", e.getMessage());
         }
     }
 
     @FXML
     private void actualizarRegistro() {
         if (personaSeleccionada == null) {
-            mostrarMensaje("Error", "No hay persona seleccionada", Alert.AlertType.WARNING);
+            mostrarAdvertencia("Error", "No hay persona seleccionada");
             return;
         }
 
         try {
-            if (validarCampos()) {
-                personaSeleccionada.setNombre(txtNombre.getText().trim());
+            if (!validarFormulario()) return;
 
-                // Actualizar teléfonos
-                personaSeleccionada.clearTelefonos();
-                for (Telefono tel : listaTelefonos.getItems()) {
-                    personaSeleccionada.addTelefono(new Telefono(0, tel.getTelefono()));
-                }
+            actualizarPersonaDesdeFormulario(personaSeleccionada);
 
-                if (personaService.actualizarPersona(personaSeleccionada)) {
-                    mostrarMensaje("Éxito",
-                            "Persona actualizada correctamente.\n" +
-                                    "Las direcciones se gestionan por separado haciendo doble clic en el campo de dirección.",
-                            Alert.AlertType.INFORMATION);
-                    cargarPersonas();
-                    // Mantener la selección
-                    tablaPersonas.getSelectionModel().select(personaSeleccionada);
-                } else {
-                    mostrarMensaje("Error", "No se pudo actualizar la persona", Alert.AlertType.ERROR);
-                }
+            if (personaService.actualizarPersona(personaSeleccionada)) {
+                mostrarExito("Persona actualizada correctamente",
+                        "Las direcciones se gestionan por separado haciendo doble clic en el campo de dirección.");
+
+                cargarPersonas();
+                tablaPersonas.getSelectionModel().select(personaSeleccionada);
+            } else {
+                mostrarError("Error", "No se pudo actualizar la persona");
             }
+
         } catch (IllegalArgumentException e) {
-            mostrarMensaje("Error de validación", e.getMessage(), Alert.AlertType.WARNING);
+            mostrarAdvertencia("Error de validación", e.getMessage());
         } catch (Exception e) {
             System.err.println("Error al actualizar: " + e.getMessage());
             e.printStackTrace();
-            mostrarMensaje("Error", "Error inesperado: " + e.getMessage(), Alert.AlertType.ERROR);
+            mostrarError("Error inesperado", e.getMessage());
         }
     }
 
     @FXML
     private void eliminarRegistro() {
         if (personaSeleccionada == null) {
-            mostrarMensaje("Error", "No hay persona seleccionada", Alert.AlertType.WARNING);
+            mostrarAdvertencia("Error", "No hay persona seleccionada");
             return;
         }
 
-        String mensaje = "Esta acción no se puede deshacer. Se eliminarán:\n" +
-                "- Los datos de la persona\n" +
-                "- Todos los teléfonos asociados\n" +
-                "- Todas las asociaciones con direcciones\n" +
-                "(Las direcciones no se eliminan, solo se desvinculan)";
-
-        Alert confirmacion = new Alert(Alert.AlertType.CONFIRMATION);
-        confirmacion.setTitle("Confirmar eliminación");
-        confirmacion.setHeaderText("¿Está seguro de eliminar a " + personaSeleccionada.getNombre() + "?");
-        confirmacion.setContentText(mensaje);
-
-        Optional<ButtonType> resultado = confirmacion.showAndWait();
-        if (resultado.isPresent() && resultado.get() == ButtonType.OK) {
+        if (confirmarEliminacion()) {
             if (personaService.eliminarPersona(personaSeleccionada.getId())) {
-                mostrarMensaje("Éxito", "Persona eliminada correctamente", Alert.AlertType.INFORMATION);
+                mostrarExito("Persona eliminada correctamente", null);
                 cargarPersonas();
                 limpiarFormulario();
                 habilitarBotones(false, false, false);
             } else {
-                mostrarMensaje("Error", "No se pudo eliminar la persona", Alert.AlertType.ERROR);
+                mostrarError("Error", "No se pudo eliminar la persona");
             }
         }
     }
@@ -307,22 +307,22 @@ public class MainController implements Initializable {
     private void agregarTelefono() {
         String telefono = txtTelefono.getText().trim();
         if (telefono.isEmpty()) {
-            mostrarMensaje("Error", "Ingrese un número de teléfono", Alert.AlertType.WARNING);
+            mostrarAdvertencia("Error", "Ingrese un número de teléfono");
             return;
         }
 
         try {
-            // Verificar que no exista el mismo teléfono
+            // Verificar duplicados
             for (Telefono tel : listaTelefonos.getItems()) {
                 if (tel.getTelefono().equals(telefono)) {
-                    mostrarMensaje("Error", "Este teléfono ya existe", Alert.AlertType.WARNING);
+                    mostrarAdvertencia("Error", "Este teléfono ya existe");
                     return;
                 }
             }
 
-            // Validar formato básico
+            // Validación básica
             if (!telefono.matches(".*\\d.*")) {
-                mostrarMensaje("Error", "El teléfono debe contener al menos un dígito", Alert.AlertType.WARNING);
+                mostrarAdvertencia("Error", "El teléfono debe contener al menos un dígito");
                 return;
             }
 
@@ -331,7 +331,7 @@ public class MainController implements Initializable {
             txtTelefono.clear();
 
         } catch (Exception e) {
-            mostrarMensaje("Error", "Error al agregar teléfono: " + e.getMessage(), Alert.AlertType.ERROR);
+            mostrarError("Error al agregar teléfono", e.getMessage());
         }
     }
 
@@ -339,7 +339,7 @@ public class MainController implements Initializable {
     private void eliminarTelefono() {
         Telefono telefonoSeleccionado = listaTelefonos.getSelectionModel().getSelectedItem();
         if (telefonoSeleccionado == null) {
-            mostrarMensaje("Error", "Seleccione un teléfono para eliminar", Alert.AlertType.WARNING);
+            mostrarAdvertencia("Error", "Seleccione un teléfono para eliminar");
             return;
         }
 
@@ -358,50 +358,48 @@ public class MainController implements Initializable {
         tablaPersonas.refresh();
     }
 
+    /**
+     * Abrir la ventana de gestión de direcciones
+     */
     private void abrirGestionDirecciones() {
         if (personaSeleccionada == null) {
-            mostrarMensaje("Error",
-                    "Primero debe guardar la persona para poder gestionar sus direcciones",
-                    Alert.AlertType.WARNING);
+            mostrarAdvertencia("Error", "Primero debe guardar la persona para poder gestionar sus direcciones");
             return;
         }
 
         try {
             System.out.println("Abriendo gestión de direcciones para: " + personaSeleccionada.getNombre());
 
-            // Cargar la vista de direcciones
             FXMLLoader loader = new FXMLLoader(getClass().getResource("/com/agenda/secondary.fxml"));
             Parent root = loader.load();
 
-            // Configurar ventana
             Stage stage = new Stage();
             stage.setTitle("Gestión de Direcciones - " + personaSeleccionada.getNombre());
             stage.initModality(Modality.APPLICATION_MODAL);
             stage.setScene(new Scene(root, 1200, 700));
 
-            // Pasar datos al controlador de direcciones
-            DireccionesController controller = loader.getController();
-            // Si tienes un método para establecer la persona seleccionada, úsalo aquí
+            // Si existe un controlador de direcciones, configurarlo aquí
+            // DireccionesController controller = loader.getController();
             // controller.setPersonaSeleccionada(personaSeleccionada);
 
             stage.showAndWait();
 
-            // Recargar datos después de cerrar la ventana de direcciones
+            // Recargar datos después de cerrar la ventana
             cargarPersonas();
             if (personaSeleccionada != null) {
-                // Reseleccionar la persona para mostrar cambios
                 tablaPersonas.getSelectionModel().select(personaSeleccionada);
             }
 
         } catch (Exception e) {
             System.err.println("Error al abrir gestión de direcciones: " + e.getMessage());
             e.printStackTrace();
-            mostrarMensaje("Error",
-                    "No se pudo abrir la gestión de direcciones: " + e.getMessage(),
-                    Alert.AlertType.ERROR);
+            mostrarError("Error", "No se pudo abrir la gestión de direcciones: " + e.getMessage());
         }
     }
 
+    /**
+     * Editar teléfono seleccionado
+     */
     private void editarTelefonoSeleccionado() {
         Telefono telefonoSeleccionado = listaTelefonos.getSelectionModel().getSelectedItem();
         if (telefonoSeleccionado == null) return;
@@ -415,10 +413,10 @@ public class MainController implements Initializable {
         if (resultado.isPresent() && !resultado.get().trim().isEmpty()) {
             String nuevoTelefono = resultado.get().trim();
 
-            // Verificar que no exista otro teléfono igual
+            // Verificar duplicados
             for (Telefono tel : listaTelefonos.getItems()) {
                 if (tel != telefonoSeleccionado && tel.getTelefono().equals(nuevoTelefono)) {
-                    mostrarMensaje("Error", "Este teléfono ya existe", Alert.AlertType.WARNING);
+                    mostrarAdvertencia("Error", "Este teléfono ya existe");
                     return;
                 }
             }
@@ -428,15 +426,45 @@ public class MainController implements Initializable {
         }
     }
 
-    private boolean validarCampos() {
+    /**
+     * Crear una persona desde los datos del formulario
+     */
+    private Persona crearPersonaDesdeFormulario() {
+        Persona nuevaPersona = new Persona(txtNombre.getText().trim());
+
+        // Agregar teléfonos
+        for (Telefono tel : listaTelefonos.getItems()) {
+            nuevaPersona.addTelefono(new Telefono(0, tel.getTelefono()));
+        }
+
+        return nuevaPersona;
+    }
+
+    /**
+     * Actualizar una persona con los datos del formulario
+     */
+    private void actualizarPersonaDesdeFormulario(Persona persona) {
+        persona.setNombre(txtNombre.getText().trim());
+
+        // Actualizar teléfonos
+        persona.clearTelefonos();
+        for (Telefono tel : listaTelefonos.getItems()) {
+            persona.addTelefono(new Telefono(0, tel.getTelefono()));
+        }
+    }
+
+    /**
+     * Validar los datos del formulario
+     */
+    private boolean validarFormulario() {
         if (txtNombre.getText().trim().isEmpty()) {
-            mostrarMensaje("Error de validación", "El nombre es obligatorio", Alert.AlertType.WARNING);
+            mostrarAdvertencia("Error de validación", "El nombre es obligatorio");
             txtNombre.requestFocus();
             return false;
         }
 
         if (txtNombre.getText().trim().length() > 100) {
-            mostrarMensaje("Error de validación", "El nombre no puede exceder 100 caracteres", Alert.AlertType.WARNING);
+            mostrarAdvertencia("Error de validación", "El nombre no puede exceder 100 caracteres");
             txtNombre.requestFocus();
             return false;
         }
@@ -444,11 +472,43 @@ public class MainController implements Initializable {
         return true;
     }
 
+    /**
+     * Confirmar eliminación con diálogo
+     */
+    private boolean confirmarEliminacion() {
+        String mensaje = "Esta acción no se puede deshacer. Se eliminarán:\n" +
+                "- Los datos de la persona\n" +
+                "- Todos los teléfonos asociados\n" +
+                "- Todas las asociaciones con direcciones\n" +
+                "(Las direcciones no se eliminan, solo se desvinculan)";
+
+        Alert confirmacion = new Alert(Alert.AlertType.CONFIRMATION);
+        confirmacion.setTitle("Confirmar eliminación");
+        confirmacion.setHeaderText("¿Está seguro de eliminar a " + personaSeleccionada.getNombre() + "?");
+        confirmacion.setContentText(mensaje);
+
+        Optional<ButtonType> resultado = confirmacion.showAndWait();
+        return resultado.isPresent() && resultado.get() == ButtonType.OK;
+    }
+
+    // Métodos de utilidad para mostrar mensajes (SRP)
     private void mostrarMensaje(String titulo, String mensaje, Alert.AlertType tipo) {
         Alert alert = new Alert(tipo);
         alert.setTitle(titulo);
         alert.setHeaderText(null);
         alert.setContentText(mensaje);
         alert.showAndWait();
+    }
+
+    private void mostrarExito(String titulo, String mensaje) {
+        mostrarMensaje(titulo, mensaje, Alert.AlertType.INFORMATION);
+    }
+
+    private void mostrarError(String titulo, String mensaje) {
+        mostrarMensaje(titulo, mensaje, Alert.AlertType.ERROR);
+    }
+
+    private void mostrarAdvertencia(String titulo, String mensaje) {
+        mostrarMensaje(titulo, mensaje, Alert.AlertType.WARNING);
     }
 }

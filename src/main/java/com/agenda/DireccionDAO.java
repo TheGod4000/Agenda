@@ -13,7 +13,7 @@ import java.util.List;
 /**
  * DAO para operaciones CRUD de Direcciones
  */
-public class DireccionDAO {
+public class DireccionDAO implements IDireccionDAO { // <-- SE IMPLEMENTA LA INTERFAZ
     private final DatabaseConnection dbConnection;
 
     public DireccionDAO() {
@@ -27,6 +27,7 @@ public class DireccionDAO {
     /**
      * Crear una nueva dirección
      */
+    @Override // <-- SE AÑADE ANOTACIÓN
     public boolean crear(Direccion direccion) {
         String sql = "INSERT INTO Direcciones (calle, ciudad, estado, codigo_postal, pais) VALUES (?, ?, ?, ?, ?)";
 
@@ -64,6 +65,7 @@ public class DireccionDAO {
     /**
      * Obtener una dirección por ID
      */
+    @Override // <-- SE AÑADE ANOTACIÓN
     public Direccion obtenerPorId(int id) {
         String sql = "SELECT * FROM Direcciones WHERE id = ?";
 
@@ -96,6 +98,7 @@ public class DireccionDAO {
     /**
      * Obtener todas las direcciones
      */
+    @Override // <-- SE AÑADE ANOTACIÓN
     public ObservableList<Direccion> obtenerTodas() {
         ObservableList<Direccion> direcciones = FXCollections.observableArrayList();
         String sql = "SELECT * FROM Direcciones ORDER BY ciudad, calle";
@@ -169,6 +172,7 @@ public class DireccionDAO {
     /**
      * Actualizar una dirección
      */
+    @Override // <-- SE AÑADE ANOTACIÓN
     public boolean actualizar(Direccion direccion) {
         String sql = "UPDATE Direcciones SET calle = ?, ciudad = ?, estado = ?, codigo_postal = ?, pais = ? WHERE id = ?";
 
@@ -204,6 +208,7 @@ public class DireccionDAO {
     /**
      * Eliminar una dirección
      */
+    @Override // <-- SE AÑADE ANOTACIÓN
     public boolean eliminar(int id) {
         // Primero verificar si la dirección está siendo usada por alguna persona
         if (estaEnUso(id)) {
@@ -239,6 +244,7 @@ public class DireccionDAO {
     /**
      * Verificar si una dirección está siendo usada por alguna persona
      */
+    @Override // <-- SE AÑADE ANOTACIÓN
     public boolean estaEnUso(int direccionId) {
         String sql = "SELECT COUNT(*) FROM PersonaDirecciones WHERE direccion_id = ?";
 
@@ -264,6 +270,7 @@ public class DireccionDAO {
     /**
      * Buscar direcciones similares para evitar duplicados
      */
+    @Override // <-- SE AÑADE ANOTACIÓN
     public List<Direccion> buscarSimilares(Direccion direccion) {
         List<Direccion> similares = new ArrayList<>();
         String sql = "SELECT * FROM Direcciones WHERE calle LIKE ? AND ciudad LIKE ?";
@@ -299,6 +306,7 @@ public class DireccionDAO {
     /**
      * Buscar direcciones por texto
      */
+    @Override // <-- SE AÑADE ANOTACIÓN
     public ObservableList<Direccion> buscarPorTexto(String texto) {
         ObservableList<Direccion> direcciones = FXCollections.observableArrayList();
         String sql = """

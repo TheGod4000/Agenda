@@ -1,68 +1,87 @@
-/*
- * Servicio para lógica de negocio de Persona - Versión actualizada
- */
+// PersonaService.java - Refactorizado para implementar IPersonaService y manejar transacciones
 package com.agenda;
 
 import javafx.collections.ObservableList;
+import java.sql.Connection;
 import java.util.Map;
 
 /**
- * Servicio para lógica de negocio de Persona con soporte para múltiples direcciones
+ * Servicio refactorizado que implementa IPersonaService y maneja transacciones
+ * Aplica los principios SRP (manejo de lógica de negocio) y DIP (depende de abstracciones)
  */
-public class PersonaService {
-    private final PersonaDAO personaDAO;
-    private final DireccionService direccionService;
+public class PersonaService implements IPersonaService {
+    // Dependencias de abstracciones, no de clases concretas (DIP)
+    private final IPersonaDAO personaDAO;
+    private final IDireccionService direccionService;
+    private final ITransactionManager transactionManager;
 
+    // Constructor por defecto (para compatibilidad)
     public PersonaService() {
         this.personaDAO = new PersonaDAO();
         this.direccionService = new DireccionService();
+        this.transactionManager = new TransactionManager();
     }
 
-    public PersonaService(PersonaDAO personaDAO, DireccionService direccionService) {
+    // Constructor para inyección de dependencias (ideal para testing)
+    public PersonaService(IPersonaDAO personaDAO, IDireccionService direccionService, ITransactionManager transactionManager) {
         this.personaDAO = personaDAO;
         this.direccionService = direccionService;
+        this.transactionManager = transactionManager;
     }
 
     /**
-     * Crear una nueva persona con validaciones
+     * Crear una nueva persona con transacción (SRP - el servicio maneja la transacción, no el DAO)
      */
+    @Override
     public boolean crearPersona(Persona persona) throws IllegalArgumentException {
         validarPersona(persona);
-        return personaDAO.crear(persona);
+
+        // El servicio maneja la transacción completa
+        return transactionManager.executeInTransaction(conn -> {
+            try {
+                // Usar el método que acepta conexión para mantener la transacción
+                PersonaDAO concreteDAO = (PersonaDAO) personaDAO;
+                return concreteDAO.crearConConexion(persona, conn);
+            } catch (Exception e) {
+                throw new RuntimeException("Error al crear persona en transacción", e);
+            }
+        });
     }
 
-    /**
-     * Obtener persona por ID
-     */
+    @Override
     public Persona obtenerPersona(int id) {
         return personaDAO.obtenerPorId(id);
     }
 
-    /**
-     * Obtener todas las personas
-     */
+    @Override
     public ObservableList<Persona> obtenerTodasPersonas() {
         return personaDAO.obtenerTodas();
     }
 
     /**
-     * Actualizar persona con validaciones
+     * Actualizar persona con transacción
      */
+    @Override
     public boolean actualizarPersona(Persona persona) throws IllegalArgumentException {
         validarPersona(persona);
-        return personaDAO.actualizar(persona);
+
+        return transactionManager.executeInTransaction(conn -> {
+            try {
+                PersonaDAO concreteDAO = (PersonaDAO) personaDAO;
+                return concreteDAO.actualizarConConexion(persona, conn);
+            } catch (Exception e) {
+                throw new RuntimeException("Error al actualizar persona en transacción", e);
+            }
+        });
     }
 
-    /**
-     * Eliminar persona
-     */
+    @Override
     public boolean eliminarPersona(int id) {
+        // Para eliminar, podemos usar transacción o el método simple según necesidad
         return personaDAO.eliminar(id);
     }
 
-    /**
-     * Buscar personas por nombre
-     */
+    @Override
     public ObservableList<Persona> buscarPersonas(String nombre) {
         if (nombre == null || nombre.trim().isEmpty()) {
             return obtenerTodasPersonas();
@@ -70,22 +89,17 @@ public class PersonaService {
         return personaDAO.buscarPorNombre(nombre.trim());
     }
 
-    /**
-     * Buscar personas que comparten una dirección
-     */
+    @Override
     public ObservableList<Persona> buscarPersonasPorDireccion(int direccionId) {
         return personaDAO.buscarPorDireccion(direccionId);
     }
 
-    /**
-     * Agregar teléfono a una persona
-     */
+    @Override
     public boolean agregarTelefono(Persona persona, String numeroTelefono) {
         if (numeroTelefono == null || numeroTelefono.trim().isEmpty()) {
             throw new IllegalArgumentException("El número de teléfono no puede estar vacío");
         }
 
-        // Validar formato del teléfono
         if (!validarFormatoTelefono(numeroTelefono.trim())) {
             throw new IllegalArgumentException("Formato de teléfono inválido");
         }
@@ -104,54 +118,54 @@ public class PersonaService {
     }
 
     /**
-     * Agregar una nueva dirección a una persona
+     * Agregar una nueva dirección a una persona con transacción
      */
-    public boolean agregarDireccion(Persona persona, Direccion direccion, String etiqueta, boolean esPrincipal)
-            throws IllegalArgumentException {
+    public boolean agregarDireccion(Persona persona, Direccion direccion, String etiqueta, boolean esPrincipal) {
+        final Direccion direccionFinal = direccion; // copia efectivamente final
 
-        try {
-            // Verificar si la dirección ya existe
-            boolean direccionExiste = direccion.getId() > 0;
+        return transactionManager.executeInTransaction(conn -> {
+            try {
+                boolean direccionExiste = direccionFinal.getId() > 0;
 
-            if (!direccionExiste) {
-                // Buscar direcciones similares
-                var similares = direccionService.buscarDireccionesSimilares(direccion);
+                Direccion direccionUsada = direccionFinal; // nueva referencia local
 
-                if (!similares.isEmpty()) {
-                    // Preguntar al usuario si quiere usar una dirección existente
-                    // Por ahora, usamos la primera similar encontrada
-                    direccion = similares.get(0);
-                    direccionExiste = true;
-                    System.out.println("Usando dirección existente similar: " + direccion.getDireccionCompleta());
-                }
-            }
+                if (!direccionExiste) {
+                    var similares = direccionService.buscarDireccionesSimilares(direccionFinal);
 
-            // Si es principal, quitar el principal anterior
-            if (esPrincipal) {
-                for (Map.Entry<Direccion, PersonaDireccion> entry : persona.getRelacionesDireccion().entrySet()) {
-                    if (entry.getValue().isEsPrincipal()) {
-                        entry.getValue().setEsPrincipal(false);
-                        break;
+                    if (!similares.isEmpty()) {
+                        direccionUsada = similares.get(0);
+                        direccionExiste = true;
+                        System.out.println("Usando dirección existente similar: " + direccionUsada.getDireccionCompleta());
+                    } else {
+                        if (!direccionService.crearDireccion(direccionFinal)) {
+                            throw new RuntimeException("No se pudo crear la dirección");
+                        }
                     }
                 }
+
+                if (esPrincipal) {
+                    for (Map.Entry<Direccion, PersonaDireccion> entry : persona.getRelacionesDireccion().entrySet()) {
+                        if (entry.getValue().isEsPrincipal()) {
+                            entry.getValue().setEsPrincipal(false);
+                            break;
+                        }
+                    }
+                }
+
+                PersonaDireccion relacion = new PersonaDireccion(
+                        persona.getId(),
+                        direccionUsada.getId(),
+                        etiqueta != null ? etiqueta : "Dirección",
+                        esPrincipal
+                );
+
+                persona.addDireccion(direccionUsada, relacion);
+
+                return true;
+            } catch (Exception e) {
+                throw new RuntimeException("Error al agregar dirección: " + e.getMessage(), e);
             }
-
-            // Crear la relación
-            PersonaDireccion relacion = new PersonaDireccion(
-                    persona.getId(),
-                    direccion.getId(),
-                    etiqueta != null ? etiqueta : "Dirección",
-                    esPrincipal
-            );
-
-            // Agregar a la persona
-            persona.addDireccion(direccion, relacion);
-
-            return true;
-
-        } catch (Exception e) {
-            throw new IllegalArgumentException("Error al agregar dirección: " + e.getMessage());
-        }
+        });
     }
 
     /**
@@ -200,7 +214,6 @@ public class PersonaService {
      * Establecer una dirección como principal para una persona
      */
     public boolean establecerDireccionPrincipal(Persona persona, int direccionId) {
-        // Quitar principal anterior
         for (Map.Entry<Direccion, PersonaDireccion> entry : persona.getRelacionesDireccion().entrySet()) {
             PersonaDireccion relacion = entry.getValue();
             if (relacion.getDireccionId() == direccionId) {
@@ -217,93 +230,74 @@ public class PersonaService {
         return false;
     }
 
-    /**
-     * Obtener un resumen de las direcciones de una persona
-     */
-    public String obtenerResumenDirecciones(Persona persona) {
-        if (persona.getDirecciones().isEmpty()) {
-            return "Sin direcciones registradas";
+    @Override
+    public String obtenerEstadisticasPersona(Persona persona) {
+        StringBuilder stats = new StringBuilder();
+        stats.append("Estadísticas de ").append(persona.getNombre()).append(":\n");
+        stats.append("- Teléfonos: ").append(persona.getTelefonos().size()).append("\n");
+        stats.append("- Direcciones: ").append(persona.getDirecciones().size()).append("\n");
+
+        if (!persona.getDirecciones().isEmpty()) {
+            Direccion principal = persona.getDireccionPrincipal();
+            stats.append("- Dirección principal: ")
+                    .append(principal != null ? principal.getDireccionResumida() : "No establecida")
+                    .append("\n");
         }
 
-        StringBuilder resumen = new StringBuilder();
-        resumen.append("Direcciones de ").append(persona.getNombre()).append(":\n");
-
-        for (Map.Entry<Direccion, PersonaDireccion> entry : persona.getRelacionesDireccion().entrySet()) {
-            Direccion dir = entry.getKey();
-            PersonaDireccion relacion = entry.getValue();
-
-            resumen.append("• ").append(relacion.getEtiqueta()).append(": ")
-                    .append(dir.getDireccionCompleta());
-
-            if (relacion.isEsPrincipal()) {
-                resumen.append(" (PRINCIPAL)");
-            }
-
-            resumen.append("\n");
-        }
-
-        return resumen.toString();
+        return stats.toString();
     }
 
     /**
-     * Migrar persona del sistema antiguo (con dirección como string) al nuevo
+     * Crear persona completa con direcciones y teléfonos en una sola transacción
      */
-    public boolean migrarPersonaANuevoSistema(Persona persona, String direccionAntigua) {
-        if (direccionAntigua == null || direccionAntigua.trim().isEmpty()) {
-            return true; // No hay nada que migrar
-        }
+    public boolean crearPersonaCompleta(Persona persona) throws IllegalArgumentException {
+        validarPersona(persona);
 
-        try {
-            // Crear dirección desde el string antiguo
-            Direccion nuevaDireccion = parsearDireccionAntigua(direccionAntigua);
-
-            // Buscar si ya existe una dirección similar
-            var similares = direccionService.buscarDireccionesSimilares(nuevaDireccion);
-            if (!similares.isEmpty()) {
-                nuevaDireccion = similares.get(0);
-                System.out.println("Usando dirección existente para migración: " + nuevaDireccion.getDireccionCompleta());
-            } else {
-                // Crear la nueva dirección
-                if (!direccionService.crearDireccion(nuevaDireccion)) {
-                    throw new RuntimeException("Error al crear dirección durante migración");
+        return transactionManager.executeInTransaction(conn -> {
+            try {
+                // Crear persona básica
+                PersonaDAO concreteDAO = (PersonaDAO) personaDAO;
+                if (!concreteDAO.crearConConexion(persona, conn)) {
+                    throw new RuntimeException("Error al crear persona");
                 }
+
+                // Crear direcciones y relaciones si las hay
+                if (!persona.getDirecciones().isEmpty()) {
+                    PersonaDireccionDAO personaDireccionDAO = new PersonaDireccionDAO();
+                    DireccionDAO direccionDAO = new DireccionDAO();
+
+                    for (Map.Entry<Direccion, PersonaDireccion> entry : persona.getRelacionesDireccion().entrySet()) {
+                        Direccion direccion = entry.getKey();
+                        PersonaDireccion relacion = entry.getValue();
+
+                        // Crear dirección si no existe
+                        if (direccion.getId() == 0) {
+                            if (!direccionDAO.crearConConexion(direccion, conn)) {
+                                throw new RuntimeException("Error al crear dirección");
+                            }
+                        }
+
+                        // Actualizar relación con IDs correctos
+                        relacion.setPersonaId(persona.getId());
+                        relacion.setDireccionId(direccion.getId());
+
+                        // Crear relación persona-dirección
+                        if (!personaDireccionDAO.crearConConexion(relacion, conn)) {
+                            throw new RuntimeException("Error al crear relación persona-dirección");
+                        }
+                    }
+                }
+
+                return true;
+
+            } catch (Exception e) {
+                throw new RuntimeException("Error en transacción completa: " + e.getMessage(), e);
             }
-
-            // Asociar la dirección a la persona como principal
-            return agregarDireccion(persona, nuevaDireccion, "Principal", true);
-
-        } catch (Exception e) {
-            System.err.println("Error al migrar dirección de persona " + persona.getId() + ": " + e.getMessage());
-            return false;
-        }
+        });
     }
 
     /**
-     * Parsear una dirección del formato antiguo (string) a la nueva estructura
-     */
-    private Direccion parsearDireccionAntigua(String direccionAntigua) {
-        // Implementación básica - se puede mejorar con parsing más inteligente
-        String[] partes = direccionAntigua.split(",");
-
-        if (partes.length == 1) {
-            return new Direccion(direccionAntigua.trim(), "", "", "", "");
-        } else if (partes.length == 2) {
-            return new Direccion(partes[0].trim(), partes[1].trim(), "", "", "");
-        } else if (partes.length >= 3) {
-            return new Direccion(
-                    partes[0].trim(),
-                    partes[1].trim(),
-                    partes[2].trim(),
-                    "",
-                    ""
-            );
-        }
-
-        return new Direccion(direccionAntigua, "", "", "", "");
-    }
-
-    /**
-     * Validar los datos de una persona
+     * Validar los datos de una persona (SRP - responsabilidad de validación)
      */
     private void validarPersona(Persona persona) throws IllegalArgumentException {
         if (persona == null) {
@@ -329,20 +323,13 @@ public class PersonaService {
             }
         }
 
-        // Validar direcciones a través del servicio de direcciones
+        // Validar direcciones básicamente (la validación completa está en DireccionService)
         for (Direccion direccion : persona.getDirecciones()) {
-            try {
-                direccionService.crearDireccion(new Direccion(
-                        direccion.getCalle(),
-                        direccion.getCiudad(),
-                        direccion.getEstado(),
-                        direccion.getCodigoPostal(),
-                        direccion.getPais()
-                )); // Solo para validación, no se guarda
-            } catch (IllegalArgumentException e) {
-                throw new IllegalArgumentException("Error en dirección: " + e.getMessage());
-            } catch (Exception e) {
-                // Ignorar otros errores (como duplicados) durante validación
+            if (direccion.getCalle() != null && direccion.getCalle().length() > 200) {
+                throw new IllegalArgumentException("La calle no puede exceder 200 caracteres");
+            }
+            if (direccion.getCiudad() != null && direccion.getCiudad().length() > 100) {
+                throw new IllegalArgumentException("La ciudad no puede exceder 100 caracteres");
             }
         }
     }
@@ -376,21 +363,50 @@ public class PersonaService {
     }
 
     /**
-     * Obtener estadísticas de una persona
+     * Migrar persona del sistema antiguo al nuevo (para compatibilidad)
      */
-    public String obtenerEstadisticasPersona(Persona persona) {
-        StringBuilder stats = new StringBuilder();
-        stats.append("Estadísticas de ").append(persona.getNombre()).append(":\n");
-        stats.append("- Teléfonos: ").append(persona.getTelefonos().size()).append("\n");
-        stats.append("- Direcciones: ").append(persona.getDirecciones().size()).append("\n");
-
-        if (!persona.getDirecciones().isEmpty()) {
-            Direccion principal = persona.getDireccionPrincipal();
-            stats.append("- Dirección principal: ")
-                    .append(principal != null ? principal.getDireccionResumida() : "No establecida")
-                    .append("\n");
+    public boolean migrarPersonaANuevoSistema(Persona persona, String direccionAntigua) {
+        if (direccionAntigua == null || direccionAntigua.trim().isEmpty()) {
+            return true;
         }
 
-        return stats.toString();
+        try {
+            Direccion nuevaDireccion = parsearDireccionAntigua(direccionAntigua);
+
+            var similares = direccionService.buscarDireccionesSimilares(nuevaDireccion);
+            if (!similares.isEmpty()) {
+                nuevaDireccion = similares.get(0);
+            } else {
+                if (!direccionService.crearDireccion(nuevaDireccion)) {
+                    throw new RuntimeException("Error al crear dirección durante migración");
+                }
+            }
+
+            return agregarDireccion(persona, nuevaDireccion, "Principal", true);
+
+        } catch (Exception e) {
+            System.err.println("Error al migrar dirección de persona " + persona.getId() + ": " + e.getMessage());
+            return false;
+        }
+    }
+
+    private Direccion parsearDireccionAntigua(String direccionAntigua) {
+        String[] partes = direccionAntigua.split(",");
+
+        if (partes.length == 1) {
+            return new Direccion(direccionAntigua.trim(), "", "", "", "");
+        } else if (partes.length == 2) {
+            return new Direccion(partes[0].trim(), partes[1].trim(), "", "", "");
+        } else if (partes.length >= 3) {
+            return new Direccion(
+                    partes[0].trim(),
+                    partes[1].trim(),
+                    partes[2].trim(),
+                    "",
+                    ""
+            );
+        }
+
+        return new Direccion(direccionAntigua, "", "", "", "");
     }
 }

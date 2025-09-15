@@ -392,5 +392,71 @@ public class PersonaDireccionDAO {
 
         return resultado;
     }
+    /**
+     * Crear relación persona-dirección usando una conexión proporcionada (para transacciones)
+     */
+    public boolean crearConConexion(PersonaDireccion personaDireccion, Connection conn) throws SQLException {
+        String sql = "INSERT INTO PersonaDirecciones (persona_id, direccion_id, etiqueta, es_principal) VALUES (?, ?, ?, ?)";
+
+        try (PreparedStatement pstmt = conn.prepareStatement(sql, Statement.RETURN_GENERATED_KEYS)) {
+            System.out.println("Creando relación persona-dirección en transacción: " +
+                    personaDireccion.getPersonaId() + " -> " + personaDireccion.getDireccionId());
+
+            if (personaDireccion.isEsPrincipal()) {
+                quitarPrincipalAnteriorConConexion(personaDireccion.getPersonaId(), conn);
+            }
+
+            pstmt.setInt(1, personaDireccion.getPersonaId());
+            pstmt.setInt(2, personaDireccion.getDireccionId());
+            pstmt.setString(3, personaDireccion.getEtiqueta());
+            pstmt.setBoolean(4, personaDireccion.isEsPrincipal());
+
+            int affectedRows = pstmt.executeUpdate();
+
+            if (affectedRows > 0) {
+                try (ResultSet generatedKeys = pstmt.getGeneratedKeys()) {
+                    if (generatedKeys.next()) {
+                        personaDireccion.setId(generatedKeys.getInt(1));
+                        System.out.println("✓ Relación persona-dirección creada con ID: " + personaDireccion.getId());
+                        return true;
+                    }
+                }
+            }
+        }
+        return false;
+    }
+
+    /**
+     * Eliminar relaciones por persona usando una conexión proporcionada (para transacciones)
+     */
+    public boolean eliminarPorPersonaIdConConexion(int personaId, Connection conn) throws SQLException {
+        String sql = "DELETE FROM PersonaDirecciones WHERE persona_id = ?";
+
+        try (PreparedStatement pstmt = conn.prepareStatement(sql)) {
+            System.out.println("Eliminando todas las direcciones para persona ID en transacción: " + personaId);
+
+            pstmt.setInt(1, personaId);
+            int affectedRows = pstmt.executeUpdate();
+
+            System.out.println("Eliminadas " + affectedRows + " relaciones persona-dirección en transacción");
+            return true;
+        }
+    }
+
+    /**
+     * Quitar principal anterior usando una conexión proporcionada (para transacciones)
+     */
+    private void quitarPrincipalAnteriorConConexion(int personaId, Connection conn) throws SQLException {
+        String sql = "UPDATE PersonaDirecciones SET es_principal = false WHERE persona_id = ? AND es_principal = true";
+
+        try (PreparedStatement pstmt = conn.prepareStatement(sql)) {
+            pstmt.setInt(1, personaId);
+            int updated = pstmt.executeUpdate();
+
+            if (updated > 0) {
+                System.out.println("Removido flag principal de " + updated + " direcciones anteriores en transacción");
+            }
+        }
+    }
 }
 
