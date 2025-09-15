@@ -1,27 +1,26 @@
 /*
- * Click nbfs://nbhost/SystemFileSystem/Templates/Licenses/license-default.txt to change this license
- * Click nbfs://nbhost/SystemFileSystem/Templates/Classes/Class.java to edit this template
+ * Servicio para lógica de negocio de Persona - Versión actualizada
  */
 package com.agenda;
 
-/**
- *
- * @author Luisg
- */
 import javafx.collections.ObservableList;
+import java.util.Map;
 
 /**
- * Servicio para lógica de negocio de Persona
+ * Servicio para lógica de negocio de Persona con soporte para múltiples direcciones
  */
 public class PersonaService {
     private final PersonaDAO personaDAO;
+    private final DireccionService direccionService;
 
     public PersonaService() {
         this.personaDAO = new PersonaDAO();
+        this.direccionService = new DireccionService();
     }
 
-    public PersonaService(PersonaDAO personaDAO) {
+    public PersonaService(PersonaDAO personaDAO, DireccionService direccionService) {
         this.personaDAO = personaDAO;
+        this.direccionService = direccionService;
     }
 
     /**
@@ -72,6 +71,13 @@ public class PersonaService {
     }
 
     /**
+     * Buscar personas que comparten una dirección
+     */
+    public ObservableList<Persona> buscarPersonasPorDireccion(int direccionId) {
+        return personaDAO.buscarPorDireccion(direccionId);
+    }
+
+    /**
      * Agregar teléfono a una persona
      */
     public boolean agregarTelefono(Persona persona, String numeroTelefono) {
@@ -93,8 +99,207 @@ public class PersonaService {
 
         Telefono nuevoTelefono = new Telefono(persona.getId(), numeroTelefono.trim());
         persona.addTelefono(nuevoTelefono);
-        
+
         return true;
+    }
+
+    /**
+     * Agregar una nueva dirección a una persona
+     */
+    public boolean agregarDireccion(Persona persona, Direccion direccion, String etiqueta, boolean esPrincipal)
+            throws IllegalArgumentException {
+
+        try {
+            // Verificar si la dirección ya existe
+            boolean direccionExiste = direccion.getId() > 0;
+
+            if (!direccionExiste) {
+                // Buscar direcciones similares
+                var similares = direccionService.buscarDireccionesSimilares(direccion);
+
+                if (!similares.isEmpty()) {
+                    // Preguntar al usuario si quiere usar una dirección existente
+                    // Por ahora, usamos la primera similar encontrada
+                    direccion = similares.get(0);
+                    direccionExiste = true;
+                    System.out.println("Usando dirección existente similar: " + direccion.getDireccionCompleta());
+                }
+            }
+
+            // Si es principal, quitar el principal anterior
+            if (esPrincipal) {
+                for (Map.Entry<Direccion, PersonaDireccion> entry : persona.getRelacionesDireccion().entrySet()) {
+                    if (entry.getValue().isEsPrincipal()) {
+                        entry.getValue().setEsPrincipal(false);
+                        break;
+                    }
+                }
+            }
+
+            // Crear la relación
+            PersonaDireccion relacion = new PersonaDireccion(
+                    persona.getId(),
+                    direccion.getId(),
+                    etiqueta != null ? etiqueta : "Dirección",
+                    esPrincipal
+            );
+
+            // Agregar a la persona
+            persona.addDireccion(direccion, relacion);
+
+            return true;
+
+        } catch (Exception e) {
+            throw new IllegalArgumentException("Error al agregar dirección: " + e.getMessage());
+        }
+    }
+
+    /**
+     * Agregar una dirección existente a una persona
+     */
+    public boolean agregarDireccionExistente(Persona persona, int direccionId, String etiqueta, boolean esPrincipal)
+            throws IllegalArgumentException {
+
+        Direccion direccion = direccionService.obtenerDireccion(direccionId);
+        if (direccion == null) {
+            throw new IllegalArgumentException("La dirección especificada no existe");
+        }
+
+        // Verificar que la persona no tenga ya esta dirección
+        for (Direccion dir : persona.getDirecciones()) {
+            if (dir.getId() == direccionId) {
+                throw new IllegalArgumentException("La persona ya tiene asociada esta dirección");
+            }
+        }
+
+        return agregarDireccion(persona, direccion, etiqueta, esPrincipal);
+    }
+
+    /**
+     * Remover una dirección de una persona
+     */
+    public boolean removerDireccion(Persona persona, int direccionId) {
+        Direccion direccionARemover = null;
+
+        for (Direccion dir : persona.getDirecciones()) {
+            if (dir.getId() == direccionId) {
+                direccionARemover = dir;
+                break;
+            }
+        }
+
+        if (direccionARemover != null) {
+            persona.removeDireccion(direccionARemover);
+            return true;
+        }
+
+        return false;
+    }
+
+    /**
+     * Establecer una dirección como principal para una persona
+     */
+    public boolean establecerDireccionPrincipal(Persona persona, int direccionId) {
+        // Quitar principal anterior
+        for (Map.Entry<Direccion, PersonaDireccion> entry : persona.getRelacionesDireccion().entrySet()) {
+            PersonaDireccion relacion = entry.getValue();
+            if (relacion.getDireccionId() == direccionId) {
+                // Quitar principal de todas las demás
+                for (PersonaDireccion otraRelacion : persona.getRelacionesDireccion().values()) {
+                    otraRelacion.setEsPrincipal(false);
+                }
+                // Establecer esta como principal
+                relacion.setEsPrincipal(true);
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    /**
+     * Obtener un resumen de las direcciones de una persona
+     */
+    public String obtenerResumenDirecciones(Persona persona) {
+        if (persona.getDirecciones().isEmpty()) {
+            return "Sin direcciones registradas";
+        }
+
+        StringBuilder resumen = new StringBuilder();
+        resumen.append("Direcciones de ").append(persona.getNombre()).append(":\n");
+
+        for (Map.Entry<Direccion, PersonaDireccion> entry : persona.getRelacionesDireccion().entrySet()) {
+            Direccion dir = entry.getKey();
+            PersonaDireccion relacion = entry.getValue();
+
+            resumen.append("• ").append(relacion.getEtiqueta()).append(": ")
+                    .append(dir.getDireccionCompleta());
+
+            if (relacion.isEsPrincipal()) {
+                resumen.append(" (PRINCIPAL)");
+            }
+
+            resumen.append("\n");
+        }
+
+        return resumen.toString();
+    }
+
+    /**
+     * Migrar persona del sistema antiguo (con dirección como string) al nuevo
+     */
+    public boolean migrarPersonaANuevoSistema(Persona persona, String direccionAntigua) {
+        if (direccionAntigua == null || direccionAntigua.trim().isEmpty()) {
+            return true; // No hay nada que migrar
+        }
+
+        try {
+            // Crear dirección desde el string antiguo
+            Direccion nuevaDireccion = parsearDireccionAntigua(direccionAntigua);
+
+            // Buscar si ya existe una dirección similar
+            var similares = direccionService.buscarDireccionesSimilares(nuevaDireccion);
+            if (!similares.isEmpty()) {
+                nuevaDireccion = similares.get(0);
+                System.out.println("Usando dirección existente para migración: " + nuevaDireccion.getDireccionCompleta());
+            } else {
+                // Crear la nueva dirección
+                if (!direccionService.crearDireccion(nuevaDireccion)) {
+                    throw new RuntimeException("Error al crear dirección durante migración");
+                }
+            }
+
+            // Asociar la dirección a la persona como principal
+            return agregarDireccion(persona, nuevaDireccion, "Principal", true);
+
+        } catch (Exception e) {
+            System.err.println("Error al migrar dirección de persona " + persona.getId() + ": " + e.getMessage());
+            return false;
+        }
+    }
+
+    /**
+     * Parsear una dirección del formato antiguo (string) a la nueva estructura
+     */
+    private Direccion parsearDireccionAntigua(String direccionAntigua) {
+        // Implementación básica - se puede mejorar con parsing más inteligente
+        String[] partes = direccionAntigua.split(",");
+
+        if (partes.length == 1) {
+            return new Direccion(direccionAntigua.trim(), "", "", "", "");
+        } else if (partes.length == 2) {
+            return new Direccion(partes[0].trim(), partes[1].trim(), "", "", "");
+        } else if (partes.length >= 3) {
+            return new Direccion(
+                    partes[0].trim(),
+                    partes[1].trim(),
+                    partes[2].trim(),
+                    "",
+                    ""
+            );
+        }
+
+        return new Direccion(direccionAntigua, "", "", "", "");
     }
 
     /**
@@ -113,10 +318,6 @@ public class PersonaService {
             throw new IllegalArgumentException("El nombre no puede exceder 100 caracteres");
         }
 
-        if (persona.getDireccion() != null && persona.getDireccion().length() > 200) {
-            throw new IllegalArgumentException("La dirección no puede exceder 200 caracteres");
-        }
-
         // Validar teléfonos
         for (Telefono telefono : persona.getTelefonos()) {
             if (telefono.getTelefono() == null || telefono.getTelefono().trim().isEmpty()) {
@@ -127,23 +328,37 @@ public class PersonaService {
                 throw new IllegalArgumentException("Formato de teléfono inválido: " + telefono.getTelefono());
             }
         }
+
+        // Validar direcciones a través del servicio de direcciones
+        for (Direccion direccion : persona.getDirecciones()) {
+            try {
+                direccionService.crearDireccion(new Direccion(
+                        direccion.getCalle(),
+                        direccion.getCiudad(),
+                        direccion.getEstado(),
+                        direccion.getCodigoPostal(),
+                        direccion.getPais()
+                )); // Solo para validación, no se guarda
+            } catch (IllegalArgumentException e) {
+                throw new IllegalArgumentException("Error en dirección: " + e.getMessage());
+            } catch (Exception e) {
+                // Ignorar otros errores (como duplicados) durante validación
+            }
+        }
     }
 
     /**
      * Validar formato de teléfono
-     * Acepta formatos como: 555-1234567, (555) 123-4567, 555.123.4567, +52 555 123 4567
      */
     private boolean validarFormatoTelefono(String telefono) {
         if (telefono == null) return false;
-        
+
         String telefonoLimpio = telefono.replaceAll("[\\s\\-\\(\\)\\.]", "");
-        
-        // Verificar si comienza con + (código de país)
+
         if (telefonoLimpio.startsWith("+")) {
             telefonoLimpio = telefonoLimpio.substring(1);
         }
-        
-        // Verificar que solo contenga dígitos y tenga una longitud razonable
+
         return telefonoLimpio.matches("\\d+") && telefonoLimpio.length() >= 7 && telefonoLimpio.length() <= 15;
     }
 
@@ -158,5 +373,24 @@ public class PersonaService {
             }
         }
         return false;
+    }
+
+    /**
+     * Obtener estadísticas de una persona
+     */
+    public String obtenerEstadisticasPersona(Persona persona) {
+        StringBuilder stats = new StringBuilder();
+        stats.append("Estadísticas de ").append(persona.getNombre()).append(":\n");
+        stats.append("- Teléfonos: ").append(persona.getTelefonos().size()).append("\n");
+        stats.append("- Direcciones: ").append(persona.getDirecciones().size()).append("\n");
+
+        if (!persona.getDirecciones().isEmpty()) {
+            Direccion principal = persona.getDireccionPrincipal();
+            stats.append("- Dirección principal: ")
+                    .append(principal != null ? principal.getDireccionResumida() : "No establecida")
+                    .append("\n");
+        }
+
+        return stats.toString();
     }
 }
