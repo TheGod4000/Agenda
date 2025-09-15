@@ -284,4 +284,5 @@ public class DatabaseConnection {
             System.err.println("Error al insertar datos de prueba: " + e.getMessage());
         }
     }
+
 }
