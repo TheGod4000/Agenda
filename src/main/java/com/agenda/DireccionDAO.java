@@ -344,4 +344,31 @@ public class DireccionDAO implements IDireccionDAO { // <-- SE IMPLEMENTA LA INT
 
         return direcciones;
     }
+    public boolean crearConConexion(Direccion direccion, Connection conn) throws SQLException {
+        String sql = "INSERT INTO Direcciones (calle, ciudad, estado, codigo_postal, pais) VALUES (?, ?, ?, ?, ?)";
+
+        try (PreparedStatement pstmt = conn.prepareStatement(sql, Statement.RETURN_GENERATED_KEYS)) {
+            System.out.println("Creando dirección con conexión existente: " + direccion.getDireccionCompleta());
+
+            pstmt.setString(1, direccion.getCalle());
+            pstmt.setString(2, direccion.getCiudad());
+            pstmt.setString(3, direccion.getEstado());
+            pstmt.setString(4, direccion.getCodigoPostal());
+            pstmt.setString(5, direccion.getPais());
+
+            int affectedRows = pstmt.executeUpdate();
+
+            if (affectedRows > 0) {
+                try (ResultSet generatedKeys = pstmt.getGeneratedKeys()) {
+                    if (generatedKeys.next()) {
+                        direccion.setId(generatedKeys.getInt(1));
+                        System.out.println("✓ Dirección creada con ID: " + direccion.getId());
+                        return true;
+                    }
+                }
+            }
+
+            return false;
+        }
+    }
 }

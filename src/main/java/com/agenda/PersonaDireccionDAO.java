@@ -458,5 +458,37 @@ public class PersonaDireccionDAO {
             }
         }
     }
+    /**
+     * Obtener todas las relaciones persona-dirección
+     * Este método es usado por verificarIntegridad() y otras operaciones globales
+     */
+    public List<PersonaDireccion> obtenerTodas() {
+        List<PersonaDireccion> relaciones = new ArrayList<>();
+        String sql = "SELECT * FROM PersonaDirecciones ORDER BY persona_id, es_principal DESC";
+
+        try (Connection conn = dbConnection.getConnection();
+             Statement stmt = conn.createStatement();
+             ResultSet rs = stmt.executeQuery(sql)) {
+
+            while (rs.next()) {
+                PersonaDireccion relacion = new PersonaDireccion(
+                        rs.getInt("id"),
+                        rs.getInt("persona_id"),
+                        rs.getInt("direccion_id"),
+                        rs.getString("etiqueta"),
+                        rs.getBoolean("es_principal")
+                );
+                relaciones.add(relacion);
+            }
+
+            System.out.println("Cargadas " + relaciones.size() + " relaciones persona-dirección");
+
+        } catch (SQLException e) {
+            System.err.println("Error al obtener todas las relaciones: " + e.getMessage());
+            e.printStackTrace();
+        }
+
+        return relaciones;
+    }
 }
 
